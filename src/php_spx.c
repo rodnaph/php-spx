@@ -40,6 +40,7 @@
 #include "spx_reporter_fp.h"
 #include "spx_reporter_full.h"
 #include "spx_reporter_trace.h"
+#include "spx_storage.h"
 
 typedef struct {
     void (*init) (void);
@@ -191,9 +192,10 @@ static void profiling_handler_sig_unset_handler(void);
 
 static void http_ui_handler_init(void);
 static void http_ui_handler_shutdown(void);
-static int  http_ui_handler_data(const char * data_dir, const char *relative_path);
-static void http_ui_handler_list_metadata_files_callback(const char * file_name, size_t count);
+static int  http_ui_handler_data(const char *relative_path);
 static int  http_ui_handler_output_file(const char * file_name);
+static spx_storage_t * create_storage_from_config(void);
+static void storage_list_callback(const char * metadata_json, size_t count);
 
 static void read_stream_content(FILE * stream, size_t (*callback) (const void * ptr, size_t len));
 
@@ -645,7 +647,16 @@ static void profiling_handler_start(void)
     switch (context.config.report) {
         default:
         case SPX_CONFIG_REPORT_FULL:
-            context.profiling_handler.reporter = spx_reporter_full_create(SPX_G(data_dir));
+            {
+                spx_storage_t * storage = create_storage_from_config();
+
+                if (storage) {
+                    context.profiling_handler.reporter = spx_reporter_full_create_with_storage(storage);
+                } else {
+                    spx_php_log_notice("SPX: Storage creation failed, profiling cannot continue");
+                    context.profiling_handler.reporter = NULL;
+                }
+            }
             if (context.profiling_handler.reporter) {
                 snprintf(
                     context.profiling_handler.full_report_key,
@@ -922,7 +933,7 @@ static void http_ui_handler_shutdown(void)
         goto error_404;
     }
 
-    if (0 == http_ui_handler_data(SPX_G(data_dir), ui_uri)) {
+    if (0 == http_ui_handler_data(ui_uri)) {
         goto finish;
     }
 
@@ -959,7 +970,7 @@ finish:
 #endif
 }
 
-static int http_ui_handler_data(const char * data_dir, const char *relative_path)
+static int http_ui_handler_data(const char *relative_path)
 {
     if (0 == strcmp(relative_path, "/data/metrics")) {
         spx_php_output_add_header_line("HTTP/1.1 200 OK");
@@ -1016,10 +1027,13 @@ static int http_ui_handler_data(const char * data_dir, const char *relative_path
 
         spx_php_output_direct_print("{\"results\": [\n");
 
-        spx_reporter_full_metadata_list_files(
-            data_dir,
-            http_ui_handler_list_metadata_files_callback
-        );
+        spx_storage_t * storage = create_storage_from_config();
+        if (storage) {
+            storage->interface->list_reports(storage, storage_list_callback);
+            spx_storage_destroy(storage);
+        } else {
+            spx_php_log_notice("SPX: Storage creation failed, cannot list reports");
+        }
 
         spx_php_output_direct_print("]}\n");
 
@@ -1028,55 +1042,60 @@ static int http_ui_handler_data(const char * data_dir, const char *relative_path
 
     const char * get_report_metadata_uri = "/data/reports/metadata/";
     if (spx_utils_str_starts_with(relative_path, get_report_metadata_uri)) {
-        char file_name[PATH_MAX];
-        if (
-            spx_reporter_full_build_metadata_file_name(
-                data_dir,
-                relative_path + strlen(get_report_metadata_uri) - 1,
-                file_name,
-                sizeof(file_name)
-            ) == NULL
-        ) {
-            return -1;
-        }
+        const char * report_key = relative_path + strlen(get_report_metadata_uri);
 
-        return http_ui_handler_output_file(file_name);
+        spx_storage_t * storage = create_storage_from_config();
+        char * metadata_json = NULL;
+        if (storage->interface->get_report_metadata(storage, report_key, &metadata_json) == 0) {
+            spx_php_output_add_header_line("HTTP/1.1 200 OK");
+            spx_php_output_add_header_line("Content-Type: application/json");
+            spx_php_output_send_headers();
+
+            if (metadata_json) {
+                spx_php_output_direct_print(metadata_json);
+                free(metadata_json);
+            }
+
+            spx_storage_destroy(storage);
+            return 0;
+        }
+        spx_storage_destroy(storage);
     }
 
     const char * get_report_uri = "/data/reports/get/";
     if (spx_utils_str_starts_with(relative_path, get_report_uri)) {
-        char file_name[PATH_MAX];
-        if (
-            spx_reporter_full_build_file_name(
-                data_dir,
-                relative_path + strlen(get_report_uri) - 1,
-                file_name,
-                sizeof(file_name)
-            ) == NULL
-        ) {
-            return -1;
-        }
+        const char * report_key = relative_path + strlen(get_report_uri);
 
-        return http_ui_handler_output_file(file_name);
+        spx_storage_t * storage = create_storage_from_config();
+        char * events_data = NULL;
+        size_t events_size = 0;
+
+        if (storage->interface->get_report_events(storage, report_key, &events_data, &events_size) == 0) {
+            spx_php_output_add_header_line("Content-Type: application/octet-stream");
+            spx_php_output_add_header_line("Content-Encoding: gzip");
+            spx_php_output_send_headers();
+
+            if (events_data && events_size > 0) {
+                size_t written = 0;
+                while (written < events_size) {
+                    size_t chunk_size = events_size - written;
+                    if (chunk_size > 8192) chunk_size = 8192;
+
+                    spx_php_output_direct_write(events_data + written, chunk_size);
+                    written += chunk_size;
+                }
+                free(events_data);
+            }
+
+            spx_storage_destroy(storage);
+            return 0;
+        }
+        spx_storage_destroy(storage);
     }
 
     return -1;
 }
 
-static void http_ui_handler_list_metadata_files_callback(const char * file_name, size_t count)
-{
-    if (count > 0) {
-        spx_php_output_direct_print(",");
-    }
-
-    FILE * fp = fopen(file_name, "r");
-    if (!fp) {
-        return;
-    }
-
-    read_stream_content(fp, spx_php_output_direct_write);
-    fclose(fp);
-}
 
 static int http_ui_handler_output_file(const char * file_name)
 {
@@ -1139,4 +1158,17 @@ static void read_stream_content(FILE * stream, size_t (*callback) (const void * 
             break;
         }
     }
+}
+
+static spx_storage_t * create_storage_from_config(void)
+{
+    return spx_storage_create(SPX_STORAGE_TYPE_FILESYSTEM, SPX_G(data_dir));
+}
+
+static void storage_list_callback(const char * metadata_json, size_t count)
+{
+    if (count > 0) {
+        spx_php_output_direct_print(",");
+    }
+    spx_php_output_direct_print(metadata_json);
 }

@@ -6,6 +6,7 @@ spx.http_enabled=1
 spx.http_key="dev"
 spx.http_ip_whitelist="127.0.0.1"
 spx.data_dir="{PWD}/data_dir"
+spx.storage_type=filesystem
 log_errors=on
 --ENV--
 return <<<END

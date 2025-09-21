@@ -2,6 +2,7 @@
 Custom metadata
 --INI--
 log_errors=on
+spx.storage_type=filesystem
 --ENV--
 return <<<END
 SPX_ENABLED=1

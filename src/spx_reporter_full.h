@@ -21,26 +21,9 @@
 
 #include "spx_profiler.h"
 
-size_t spx_reporter_full_metadata_list_files(
-    const char * data_dir,
-    void (*callback) (const char *, size_t)
-);
+struct spx_storage_t;
 
-char * spx_reporter_full_build_metadata_file_name(
-    const char * data_dir,
-    const char * key,
-    char * file_name,
-    size_t size
-);
-
-char * spx_reporter_full_build_file_name(
-    const char * data_dir,
-    const char * key,
-    char * file_name,
-    size_t size
-);
-
-spx_profiler_reporter_t * spx_reporter_full_create(const char * data_dir);
+spx_profiler_reporter_t * spx_reporter_full_create_with_storage(struct spx_storage_t * storage);
 
 void spx_reporter_full_set_custom_metadata_str(
     const spx_profiler_reporter_t * base_reporter,
