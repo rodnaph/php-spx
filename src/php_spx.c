@@ -95,6 +95,13 @@ ZEND_BEGIN_MODULE_GLOBALS(spx)
     const char * http_profiling_sampling_period;
     const char * http_profiling_depth;
     const char * http_profiling_metrics;
+    const char * storage_type;
+    const char * pgsql_host;
+    const char * pgsql_port;
+    const char * pgsql_database;
+    const char * pgsql_user;
+    const char * pgsql_password;
+    const char * pgsql_schema;
 ZEND_END_MODULE_GLOBALS(spx)
 
 ZEND_DECLARE_MODULE_GLOBALS(spx)
@@ -161,6 +168,34 @@ PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY(
         "spx.http_profiling_metrics", NULL, PHP_INI_SYSTEM,
         OnUpdateString, http_profiling_metrics, zend_spx_globals, spx_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "spx.storage_type", "filesystem", PHP_INI_SYSTEM,
+        OnUpdateString, storage_type, zend_spx_globals, spx_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "spx.pgsql.host", "localhost", PHP_INI_SYSTEM,
+        OnUpdateString, pgsql_host, zend_spx_globals, spx_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "spx.pgsql.port", "5432", PHP_INI_SYSTEM,
+        OnUpdateString, pgsql_port, zend_spx_globals, spx_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "spx.pgsql.database", "spx_profiles", PHP_INI_SYSTEM,
+        OnUpdateString, pgsql_database, zend_spx_globals, spx_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "spx.pgsql.user", "", PHP_INI_SYSTEM,
+        OnUpdateString, pgsql_user, zend_spx_globals, spx_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "spx.pgsql.password", "", PHP_INI_SYSTEM,
+        OnUpdateString, pgsql_password, zend_spx_globals, spx_globals
+    )
+    STD_PHP_INI_ENTRY(
+        "spx.pgsql.schema", "public", PHP_INI_SYSTEM,
+        OnUpdateString, pgsql_schema, zend_spx_globals, spx_globals
     )
 PHP_INI_END()
 
@@ -1162,6 +1197,78 @@ static void read_stream_content(FILE * stream, size_t (*callback) (const void * 
 
 static spx_storage_t * create_storage_from_config(void)
 {
+    const char * storage_type_str = getenv("SPX_STORAGE_TYPE");
+    if (!storage_type_str || !*storage_type_str) {
+        storage_type_str = SPX_G(storage_type);
+    }
+
+    if (storage_type_str && strcmp(storage_type_str, "postgresql") == 0) {
+#ifdef SPX_STORAGE_POSTGRESQL_ENABLED
+        const char * host = getenv("SPX_PGSQL_HOST");
+        if (!host || !*host) {
+            host = SPX_G(pgsql_host);
+        }
+        if (!host || !*host) {
+            host = "localhost";
+        }
+
+        const char * port = getenv("SPX_PGSQL_PORT");
+        if (!port || !*port) {
+            port = SPX_G(pgsql_port);
+        }
+        if (!port || !*port) {
+            port = "5432";
+        }
+
+        const char * database = getenv("SPX_PGSQL_DATABASE");
+        if (!database || !*database) {
+            database = SPX_G(pgsql_database);
+        }
+        if (!database || !*database) {
+            database = "spx_profiles";
+        }
+
+        const char * user = getenv("SPX_PGSQL_USER");
+        if (!user || !*user) {
+            user = SPX_G(pgsql_user);
+        }
+        if (!user || !*user) {
+            user = "";
+        }
+
+        const char * password = getenv("SPX_PGSQL_PASSWORD");
+        if (!password || !*password) {
+            password = SPX_G(pgsql_password);
+        }
+        if (!password || !*password) {
+            password = "";
+        }
+
+        char connection_string[1024];
+        snprintf(
+            connection_string,
+            sizeof(connection_string),
+            "host=%s port=%s dbname=%s user=%s password=%s",
+            host,
+            port,
+            database,
+            user,
+            password
+        );
+
+        spx_storage_t * storage = spx_storage_create(SPX_STORAGE_TYPE_POSTGRESQL, connection_string);
+
+        if (!storage) {
+            spx_php_log_notice("SPX: PostgreSQL storage creation failed");
+        }
+
+        return storage;
+#else
+        spx_php_log_notice("SPX: PostgreSQL storage requested but not compiled in!");
+        return NULL;
+#endif
+    }
+
     return spx_storage_create(SPX_STORAGE_TYPE_FILESYSTEM, SPX_G(data_dir));
 }
 

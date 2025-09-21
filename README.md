@@ -272,6 +272,67 @@ while ($task = get_next_ready_task()) {
 
 _\*: `*` (match all) and subnet masks (e.g. `192.168.1.0/24`) are supported._
 
+#### PostgreSQL Storage Configuration
+
+SPX supports storing profiling data in PostgreSQL instead of the filesystem. Configuration can be done via PHP INI settings or environment variables (environment variables take precedence).
+
+**Method 1: Environment Variables (Recommended for security)**
+
+```bash
+export SPX_STORAGE_TYPE=postgresql
+export SPX_PGSQL_HOST=localhost
+export SPX_PGSQL_PORT=5432
+export SPX_PGSQL_DATABASE=spx_profiles
+export SPX_PGSQL_USER=your_username
+export SPX_PGSQL_PASSWORD=your_password
+```
+
+**Method 2: PHP INI Configuration**
+
+```ini
+spx.storage_type=postgresql
+spx.pgsql.host=localhost
+spx.pgsql.port=5432
+spx.pgsql.database=spx_profiles
+spx.pgsql.user=your_username
+spx.pgsql.password=your_password
+spx.pgsql.schema=public
+```
+
+**Create the required database table** by running this SQL in your PostgreSQL database:
+
+```sql
+CREATE TABLE spx_reports (
+    id SERIAL PRIMARY KEY,
+    key VARCHAR(255) UNIQUE NOT NULL,
+    exec_ts BIGINT NOT NULL,
+    host_name VARCHAR(255),
+    process_pid INTEGER,
+    process_tid INTEGER,
+    process_pwd TEXT,
+    is_cli BOOLEAN,
+    cli_command_line TEXT,
+    http_request_uri TEXT,
+    http_method VARCHAR(16),
+    http_host VARCHAR(255),
+    custom_metadata_str TEXT,
+    wall_time_ms BIGINT,
+    peak_memory_usage BIGINT,
+    called_function_count BIGINT,
+    call_count BIGINT,
+    recorded_call_count BIGINT,
+    enabled_metrics VARCHAR(255),
+    events_data BYTEA,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_spx_reports_exec_ts ON spx_reports (exec_ts);
+CREATE INDEX idx_spx_reports_host_name ON spx_reports (host_name);
+CREATE INDEX idx_spx_reports_created_at ON spx_reports (created_at);
+```
+
+**Note:** PostgreSQL storage requires the `libpq` development library to be installed during compilation. Use `./configure --with-spx-pgsql` when building the extension.
+
 #### Private environment
 
 For your local & private development environment, since there is no need for authentication, you can use this configuration:

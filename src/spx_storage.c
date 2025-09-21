@@ -312,6 +312,11 @@ spx_storage_t * spx_storage_create(spx_storage_type_t type, const char * config)
         case SPX_STORAGE_TYPE_FILESYSTEM:
             return spx_storage_create_filesystem(config);
 
+#ifdef SPX_STORAGE_POSTGRESQL_ENABLED
+        case SPX_STORAGE_TYPE_POSTGRESQL:
+            return spx_storage_create_postgresql(config);
+#endif
+
         default:
             spx_php_log_notice("SPX: Unsupported storage type %d", type);
             return NULL;

@@ -32,6 +32,7 @@
 
 typedef enum {
     SPX_STORAGE_TYPE_FILESYSTEM,
+    SPX_STORAGE_TYPE_POSTGRESQL,
 } spx_storage_type_t;
 
 typedef struct {
@@ -114,6 +115,9 @@ spx_storage_t * spx_storage_create(spx_storage_type_t type, const char * config)
 void spx_storage_destroy(spx_storage_t * storage);
 
 spx_storage_t * spx_storage_create_filesystem(const char * data_dir);
+#ifdef SPX_STORAGE_POSTGRESQL_ENABLED
+spx_storage_t * spx_storage_create_postgresql(const char * connection_string);
+#endif
 
 int spx_storage_save_events(
     spx_output_stream_t * output,
